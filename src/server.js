@@ -1,50 +1,48 @@
 require('dotenv').config();
 const app = require('./app');
-
 const connectDB = require('./config/db');
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces
+const HOST = process.env.HOST || '0.0.0.0';
 
-// Function to start the server, independent of the database
 async function startServer() {
   try {
-    // Attempt to connect to MongoDB, but don't let failure stop the server
-    await connectDB();
-    console.log('✅ MongoDB Connected');
-  } catch (dbError) {
-    // Log the error but continue to start the Express server
-    console.error('⚠️  MongoDB connection failed:', dbError.message);
-    console.log('💡 Server starting in offline mode. API will run without database persistence.');
-  }
+    if (process.env.NODE_ENV === 'production') {
+      // In production: DB MUST connect or app should not start
+      await connectDB();
+      console.log('✅ MongoDB Connected (production)');
+    } else {
+      // In development: allow app to run even if DB fails
+      try {
+        await connectDB();
+        console.log('✅ MongoDB Connected (development)');
+      } catch (err) {
+        console.warn('⚠️ MongoDB not connected (development mode)');
+      }
+    }
 
-  // Start the Express server regardless of DB connection status
-  const server = app.listen(PORT, HOST, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌐 Access via:`);
-    console.log(`   Local: http://localhost:${PORT}`);
-    console.log(`   Network: http://192.168.100.94:${PORT}`);
-    
-    // Get network IP addresses
-    const os = require('os');
-    const networkInterfaces = os.networkInterfaces();
-    
-    Object.keys(networkInterfaces).forEach(interfaceName => {
-      networkInterfaces[interfaceName].forEach(interface => {
-        // Note: In newer Node.js versions, the property might be `family: 'IPv4'`
-        // instead of `interface.family === 'IPv4'`. Using .includes() is safer.
-        if ((interface.family === 'IPv4' || interface.family === 4) && !interface.internal) {
-          console.log(`   Network: http://${interface.address}:${PORT}`);
-        }
-      });
+    const server = app.listen(PORT, HOST, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     });
-  });
 
-  return server;
+    // Graceful shutdown
+    const shutdown = () => {
+      console.log('🛑 Shutting down server...');
+      server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
+    return server;
+  } catch (error) {
+    console.error('💥 Failed to start server:', error);
+    process.exit(1);
+  }
 }
 
-// Handle any uncaught errors during server startup
-startServer().catch((error) => {
-  console.error('💥 Failed to start server:', error);
-  process.exit(1);
-});
+startServer();

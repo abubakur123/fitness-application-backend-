@@ -3,33 +3,48 @@ const cors = require('cors');
 
 const app = express();
 
-// Configure CORS to allow all origins (for development)
-app.use(cors({
-  origin: '*', // Allow all origins during development
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  credentials: false
-}));
+/**
+ * Required for cloud hosting (Hostinger / Nginx / VPS)
+ */
+app.set('trust proxy', 1);
 
-// Or for more specific control during development:
-// app.use(cors({
-//   origin: ['http://localhost:3000', 'http://localhost:8080', 'http://localhost:8081'],
-//   credentials: true
-// }));
+/**
+ * CORS Configuration
+ */
+const allowedOrigins =
+  process.env.NODE_ENV === 'production'
+    ? [
+        'https://yourdomain.com',
+        'https://www.yourdomain.com'
+      ]
+    : '*';
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
+  })
+);
 
 app.use(express.json());
 
-// Debug middleware - move it before routes
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-  console.log('Origin:', req.headers.origin || 'No origin header');
-  console.log('Host:', req.headers.host);
-  next();
-});
+/**
+ * Request logging (DEV ONLY)
+ */
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+    next();
+  });
+}
 
-// ========================================
-// IMPORT ROUTES
-// ========================================
+/**
+ * ========================================
+ * IMPORT ROUTES
+ * ========================================
+ */
 const adaptiveProfileRoutes = require('../src/routes/adaptive_profile_routes');
 const profileRoutes = require('../src/routes/profile_routes');
 const goalbaseProgram = require('../src/routes/goal_base_program_routes');
@@ -41,11 +56,13 @@ const progressRoutes = require('../src/routes/plan_tracking_routes');
 const statsRoutes = require('../src/routes/stats_route');
 const subscriptionRoutes = require('../src/routes/subscription_routes');
 const packageRoutes = require('../src/routes/packages_routes');
-const paymentRoutes =require('../src/routes/payment_routes');
+const paymentRoutes = require('../src/routes/payment_routes');
 
-// ========================================
-// REGISTER ROUTES
-// ========================================
+/**
+ * ========================================
+ * REGISTER ROUTES
+ * ========================================
+ */
 app.use('/api/adaptive-profile', adaptiveProfileRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/goal-base-programs', goalbaseProgram);
@@ -59,45 +76,51 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/payment', paymentRoutes);
 
-// ========================================
-// BASE ROUTE
-// ========================================
+/**
+ * ========================================
+ * BASE & HEALTH ROUTES
+ * ========================================
+ */
 app.get('/', (req, res) => {
   res.send('Fitness Coach API running');
 });
 
-// Health Check Route
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    success: true, 
+  res.status(200).json({
+    success: true,
     message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    ip: req.ip,
-    host: req.headers.host
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
   });
 });
 
-// Handle preflight requests
-app.options('*', cors());
-
-// 404 Handler - Must be after all routes
+/**
+ * ========================================
+ * 404 HANDLER
+ * ========================================
+ */
 app.use((req, res) => {
-  console.log(`404: Route not found - ${req.method} ${req.url}`);
   res.status(404).json({
     success: false,
     message: 'Route not found',
-    requestedUrl: req.url,
-    method: req.method
+    method: req.method,
+    path: req.originalUrl
   });
 });
 
-// Error Handler
+/**
+ * ========================================
+ * GLOBAL ERROR HANDLER
+ * ========================================
+ */
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error('❌ Error:', err);
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal server error',
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    stack:
+      process.env.NODE_ENV === 'development' ? err.stack : undefined
   });
 });
 
