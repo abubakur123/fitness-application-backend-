@@ -41,7 +41,6 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
-          subscriptionHistory: user.subscriptionHistory || [],
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -260,7 +259,6 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
-          subscriptionHistory: user.subscriptionHistory || [],
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -371,7 +369,6 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
-          subscriptionHistory: user.subscriptionHistory || [],
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -513,8 +510,7 @@ class AuthController {
         isPaidUser: user.isPaidUser || user.subscriptionStatus === 'active',
         currentSubscription: user.currentSubscription || null,
         currentSubscriptionDetails: user.currentSubscriptionDetails || null,
-        hasActiveSubscription: (user.subscriptionStatus === 'active'),
-        subscriptionHistoryCount: user.subscriptionHistory ? user.subscriptionHistory.length : 0
+        hasActiveSubscription: (user.subscriptionStatus === 'active')
       });
 
     } catch (error) {
@@ -588,75 +584,73 @@ class AuthController {
     }
   }
 
-  // Add this method to AuthController class
-async migrateUserSubscriptions(req, res) {
-  try {
-    // Add admin check (optional)
-    const isAdmin = req.user?.isAdmin || req.headers['x-admin-key'] === process.env.ADMIN_KEY;
-    if (!isAdmin) {
-      return res.status(403).json({
+  // Migrate user subscriptions (remove subscriptionHistory references)
+  async migrateUserSubscriptions(req, res) {
+    try {
+      // Add admin check (optional)
+      const isAdmin = req.user?.isAdmin || req.headers['x-admin-key'] === process.env.ADMIN_KEY;
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Admin access required'
+        });
+      }
+      
+      const User = require('../models/auth.model');
+      
+      // Find all users without subscriptionStatus
+      const usersToUpdate = await User.find({
+        $or: [
+          { subscriptionStatus: { $exists: false } },
+          { subscriptionStatus: null }
+        ]
+      });
+      
+      console.log(`Found ${usersToUpdate.length} users to update`);
+      
+      // Update each user
+      let updatedCount = 0;
+      for (const user of usersToUpdate) {
+        try {
+          user.subscriptionStatus = 'free';
+          user.currentSubscription = null;
+          await user.save();
+          updatedCount++;
+        } catch (err) {
+          console.error(`Error updating user ${user._id}:`, err.message);
+        }
+      }
+      
+      // Bulk update for any remaining users
+      const bulkResult = await User.updateMany(
+        {},
+        { 
+          $setOnInsert: { 
+            subscriptionStatus: 'free'
+          }
+        },
+        { upsert: false }
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Migration completed successfully',
+        data: {
+          individuallyUpdated: updatedCount,
+          bulkModified: bulkResult.modifiedCount,
+          totalUsers: await User.countDocuments(),
+          freeUsers: await User.countDocuments({ subscriptionStatus: 'free' })
+        }
+      });
+      
+    } catch (error) {
+      console.error('Migration error:', error);
+      res.status(500).json({
         success: false,
-        message: 'Admin access required'
+        message: error.message || 'Migration failed'
       });
     }
-    
-    const User = require('../models/auth.model');
-    
-    // Find all users without subscriptionStatus
-    const usersToUpdate = await User.find({
-      $or: [
-        { subscriptionStatus: { $exists: false } },
-        { subscriptionStatus: null }
-      ]
-    });
-    
-    console.log(`Found ${usersToUpdate.length} users to update`);
-    
-    // Update each user
-    let updatedCount = 0;
-    for (const user of usersToUpdate) {
-      try {
-        user.subscriptionStatus = 'free';
-        user.currentSubscription = null;
-        user.subscriptionHistory = user.subscriptionHistory || [];
-        await user.save();
-        updatedCount++;
-      } catch (err) {
-        console.error(`Error updating user ${user._id}:`, err.message);
-      }
-    }
-    
-    // Bulk update for any remaining users
-    const bulkResult = await User.updateMany(
-      {},
-      { 
-        $setOnInsert: { 
-          subscriptionStatus: 'free',
-          subscriptionHistory: []
-        }
-      },
-      { upsert: false }
-    );
-    
-    res.status(200).json({
-      success: true,
-      message: 'Migration completed successfully',
-      data: {
-        individuallyUpdated: updatedCount,
-        bulkModified: bulkResult.modifiedCount,
-        totalUsers: await User.countDocuments(),
-        freeUsers: await User.countDocuments({ subscriptionStatus: 'free' })
-      }
-    });
-    
-  } catch (error) {
-    console.error('Migration error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Migration failed'
-    });
   }
-}
 }
 
 module.exports = new AuthController();

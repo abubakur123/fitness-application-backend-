@@ -189,7 +189,7 @@ class AuthService {
         },
         token
       };
-
+      
     } catch (error) {
       throw new Error(`Signup completion failed: ${error.message}`);
     }
@@ -337,7 +337,6 @@ class AuthService {
           isVerified: user.isVerified,
           subscriptionStatus: user.subscriptionStatus,
           currentSubscription: user.currentSubscription,
-          subscriptionHistory: user.subscriptionHistory,
           isPaidUser: user.isPaidUser(),
           createdAt: user.createdAt,
           updatedAt: user.updatedAt

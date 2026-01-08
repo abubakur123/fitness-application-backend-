@@ -164,7 +164,7 @@ class SubscriptionController {
     }
   }
 
-  // Get user subscription history
+  // Get user subscription history (from Subscription collection)
   async getUserSubscriptionHistory(req, res) {
     try {
       const userId = req.params.userId || req.user?.userId;

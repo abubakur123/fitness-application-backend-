@@ -30,9 +30,7 @@ class SubscriptionService {
       // Update user document with subscription info
       await User.updateUserSubscription(subscriptionData.user, {
         subscriptionId: savedSubscription._id,
-        status: 'active',
-        subscription: savedSubscription,
-        packageDoc: packageDoc
+        status: 'active'
       });
 
       return savedSubscription;
@@ -196,7 +194,7 @@ class SubscriptionService {
     }
   }
 
- // Get user's latest subscription (modified version)
+  // Get user's latest subscription (modified version)
   async getUserSubscription(userId) {
     try {
       // Validate userId
@@ -293,135 +291,144 @@ class SubscriptionService {
     };
   }
 
+  // Cancel subscription AND update user document
+  async cancelSubscription(id, userId = null) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
+    try {
+      const subscription = await Subscription.findById(id).session(session);
+      
+      if (!subscription) {
+        await session.abortTransaction();
+        throw new Error('Subscription not found');
+      }
+
+      // Check ownership if userId is provided
+      if (userId && subscription.user.toString() !== userId.toString()) {
+        await session.abortTransaction();
+        throw new Error('You do not have permission to cancel this subscription');
+      }
+
+      // Check if subscription is already cancelled
+      if (subscription.status === 'cancelled') {
+        await session.abortTransaction();
+        throw new Error('Subscription is already cancelled');
+      }
+
+      // Update subscription document
+      subscription.status = 'cancelled';
+      subscription.updatedAt = Date.now();
+      
+      if (subscription.schema.path('cancelledAt')) {
+        subscription.cancelledAt = Date.now();
+      }
+      
+      await subscription.save({ session });
+
+      // Update user document
+      const user = await User.findById(subscription.user).session(session);
+      
+      if (!user) {
+        await session.abortTransaction();
+        throw new Error(`User not found for subscription ${id}`);
+      }
+
+      // Clear current subscription if this is the current one
+      if (user.currentSubscription && user.currentSubscription.toString() === id.toString()) {
+        user.currentSubscription = null;
+        user.subscriptionStatus = 'free';
+      }
+      
+      user.updatedAt = Date.now();
+      await user.save({ session });
+
+      // Commit transaction
+      await session.commitTransaction();
+      
+      console.log(`✓ Subscription ${id} cancelled successfully`);
+      console.log(`✓ User ${user._id} status: ${user.subscriptionStatus}`);
+      console.log(`✓ User currentSubscription: ${user.currentSubscription}`);
+
+      return subscription;
+      
+    } catch (error) {
+      await session.abortTransaction();
+      console.error(`✗ Error cancelling subscription:`, error.message);
+      throw error;
+    } finally {
+      session.endSession();
+    }
+  }
+
   // Update subscription status AND update user document
   async updateSubscriptionStatus(id, status) {
-    const updateData = {
-      status,
-      updatedAt: Date.now()
-    };
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    // Set cancellation date if status is cancelled
-    if (status === 'cancelled') {
-      updateData.cancelledAt = Date.now();
-    }
+    try {
+      const updateData = {
+        status,
+        updatedAt: Date.now()
+      };
 
-    const updatedSubscription = await Subscription.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    );
-
-    if (!updatedSubscription) {
-      throw new Error('Subscription not found');
-    }
-
-    // Update user document based on status
-    const user = await User.findById(updatedSubscription.user);
-    if (user) {
       if (status === 'cancelled') {
-        // For cancelled status, clear user's current subscription
-        user.currentSubscription = null;
-        user.subscriptionStatus = 'free';
-        
-        // Update subscription history
-        const historyEntry = user.subscriptionHistory.find(
-          entry => entry.subscriptionId && 
-                  entry.subscriptionId.toString() === id.toString()
-        );
-        
-        if (historyEntry) {
-          historyEntry.status = 'cancelled';
-          historyEntry.endDate = new Date();
+        updateData.cancelledAt = Date.now();
+      }
+
+      const updatedSubscription = await Subscription.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true, session }
+      );
+
+      if (!updatedSubscription) {
+        await session.abortTransaction();
+        throw new Error('Subscription not found');
+      }
+
+      // Update user document based on status
+      const user = await User.findById(updatedSubscription.user).session(session);
+      
+      if (!user) {
+        await session.abortTransaction();
+        throw new Error(`User not found for subscription ${id}`);
+      }
+
+      // Update current subscription status
+      if (status === 'cancelled' || status === 'expired') {
+        // Only clear if this is the current subscription
+        if (user.currentSubscription && user.currentSubscription.toString() === id.toString()) {
+          user.currentSubscription = null;
+          user.subscriptionStatus = 'free';
         }
       } else if (status === 'active') {
-        // For active status, update user's current subscription
         user.currentSubscription = updatedSubscription._id;
         user.subscriptionStatus = 'active';
-      } else if (status === 'expired') {
-        // For expired status, clear subscription but keep history
-        user.currentSubscription = null;
-        user.subscriptionStatus = 'free';
+      } else if (status === 'pending') {
+        user.subscriptionStatus = 'pending';
       }
       
-      await user.save();
-      console.log(`User ${user._id} subscription status updated to: ${user.subscriptionStatus}`);
-    }
+      user.updatedAt = Date.now();
+      await user.save({ session });
 
-    return updatedSubscription;
+      await session.commitTransaction();
+      
+      console.log(`✓ Subscription ${id} status: ${status}`);
+      console.log(`✓ User ${user._id} status: ${user.subscriptionStatus}`);
+
+      return updatedSubscription;
+      
+    } catch (error) {
+      await session.abortTransaction();
+      console.error(`✗ Error updating subscription status:`, error.message);
+      throw error;
+    } finally {
+      session.endSession();
+    }
   }
 
-  // Cancel subscription AND update user document - WITH OWNERSHIP CHECK
-  async cancelSubscription(id, userId = null) {
-    const subscription = await Subscription.findById(id);
-    
-    if (!subscription) {
-      throw new Error('Subscription not found');
-    }
-
-    // Check ownership if userId is provided
-    if (userId && subscription.user.toString() !== userId.toString()) {
-      throw new Error('You do not have permission to cancel this subscription');
-    }
-
-    // Check if subscription is already cancelled
-    if (subscription.status === 'cancelled') {
-      throw new Error('Subscription is already cancelled');
-    }
-
-    // Update subscription document
-    subscription.status = 'cancelled';
-    subscription.updatedAt = Date.now();
-    
-    // If you have cancellation date in subscription model
-    if (subscription.schema.path('cancelledAt')) {
-      subscription.cancelledAt = Date.now();
-    }
-    
-    const cancelledSubscription = await subscription.save();
-
-    // Update user document
-    const user = await User.findById(subscription.user);
-    if (user) {
-      // Clear current subscription reference
-      user.currentSubscription = null;
-      
-      // Update subscription status to 'free' (not 'cancelled' in user model)
-      user.subscriptionStatus = 'free';
-      
-      // Update subscription history entry if it exists
-      const historyEntry = user.subscriptionHistory.find(
-        entry => entry.subscriptionId && 
-                 entry.subscriptionId.toString() === id.toString()
-      );
-      
-      if (historyEntry) {
-        historyEntry.status = 'cancelled';
-        historyEntry.endDate = new Date(); // Update end date to now
-        
-        // If you have updatedAt in history entry
-        if (historyEntry.updatedAt) {
-          historyEntry.updatedAt = new Date();
-        }
-      } else {
-        // Add to history if not already there
-        const packageDoc = await Package.findById(subscription.package);
-        user.addSubscriptionToHistory(cancelledSubscription, packageDoc);
-        
-        // Update the newly added history entry status
-        const newEntry = user.subscriptionHistory[user.subscriptionHistory.length - 1];
-        newEntry.status = 'cancelled';
-      }
-      
-      await user.save();
-      console.log(`User ${user._id} subscription status updated to: ${user.subscriptionStatus}`);
-    } else {
-      console.error(`User not found for subscription ${id}`);
-    }
-
-    return cancelledSubscription;
-  }
-
-  // Check for expiring subscriptions
+  // Get expiring subscriptions
   async getExpiringSubscriptions(days = 7) {
     const date = new Date();
     date.setDate(date.getDate() + days);
@@ -433,25 +440,42 @@ class SubscriptionService {
     .populate('user', 'email')
     .populate('package', 'name');
 
-    // Update user status for expired subscriptions
+    // Update subscriptions and users properly
     for (const subscription of expiringSubscriptions) {
       const expiryDate = new Date(subscription.expiryDate);
       const today = new Date();
       
       if (expiryDate <= today) {
-        // Update subscription status
-        await Subscription.findByIdAndUpdate(subscription._id, {
-          status: 'expired',
-          updatedAt: Date.now()
-        });
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        
+        try {
+          // Update subscription status
+          await Subscription.findByIdAndUpdate(
+            subscription._id, 
+            { status: 'expired', updatedAt: Date.now() },
+            { session }
+          );
 
-        // Update user document
-        const user = await User.findById(subscription.user);
-        if (user && user.currentSubscription && 
-            user.currentSubscription.toString() === subscription._id.toString()) {
-          user.currentSubscription = null;
-          user.subscriptionStatus = 'free';
-          await user.save();
+          // Update user document
+          const user = await User.findById(subscription.user).session(session);
+          if (user) {
+            // Only update if this is the current subscription
+            if (user.currentSubscription && 
+                user.currentSubscription.toString() === subscription._id.toString()) {
+              user.currentSubscription = null;
+              user.subscriptionStatus = 'free';
+            }
+            
+            await user.save({ session });
+          }
+          
+          await session.commitTransaction();
+        } catch (error) {
+          await session.abortTransaction();
+          console.error(`Error expiring subscription ${subscription._id}:`, error);
+        } finally {
+          session.endSession();
         }
       }
     }
@@ -491,8 +515,7 @@ class SubscriptionService {
     };
   }
 
-
-  // Get user subscription history
+  // Get user subscription history (from Subscription collection)
   async getUserSubscriptionHistory(userId) {
     try {
       // Validate userId
@@ -569,7 +592,6 @@ class SubscriptionService {
         isPaidUser: user.isPaidUser(),
         hasActiveSubscription: !!activeSubscription,
         activeSubscription: activeSubscription,
-        subscriptionHistoryCount: user.subscriptionHistory.length,
         userExists: true
       };
     } catch (error) {
