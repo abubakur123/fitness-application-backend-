@@ -57,6 +57,7 @@ const statsRoutes = require('../src/routes/stats_route');
 const subscriptionRoutes = require('../src/routes/subscription_routes');
 const packageRoutes = require('../src/routes/packages_routes');
 const paymentRoutes = require('../src/routes/payment_routes');
+const exerciseVideoRoutes = require('../src/routes/exercize_video_routes');
 
 /**
  * ========================================
@@ -75,6 +76,7 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/exercise-videos', exerciseVideoRoutes);
 
 /**
  * ========================================
