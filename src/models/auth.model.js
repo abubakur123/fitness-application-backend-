@@ -37,6 +37,22 @@ const userSchema = new mongoose.Schema({
     ref: 'Subscription',
     default: null
   },
+  // NEW: Google OAuth fields
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  googleProfile: {
+    name: String,
+    firebase_uid: String,
+    email_verified: Boolean
+  },
+  authProvider: {
+    type: String,
+    enum: ['email', 'google'],
+    default: 'email'
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -78,6 +94,8 @@ userSchema.methods.getPublicProfile = function() {
     subscriptionStatus: this.subscriptionStatus,
     currentSubscription: this.currentSubscription,
     isPaidUser: this.isPaidUser(),
+    authProvider: this.authProvider,
+    googleProfile: this.googleProfile,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
   };

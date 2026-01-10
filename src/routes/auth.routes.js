@@ -1,14 +1,18 @@
-// routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const authController = require('../controllers/auth.controller');
 
 // ========== PUBLIC ROUTES ==========
+
+// Email-based authentication
 router.post('/signup/initiate', authController.initiateSignup);
 router.post('/signup/complete', authController.completeSignup); 
 router.post('/login/initiate', authController.initiateLogin);
 router.post('/login/complete', authController.completeLogin);
+
+// NEW: Google OAuth authentication
+router.post('/google', authController.googleAuth);
 
 // ========== PROTECTED ROUTES ==========
 // Apply middleware to each protected route individually
@@ -21,7 +25,7 @@ router.delete('/user/:email', authController.verifyToken, authController.deleteU
 router.get('/user/id/:userId', authController.verifyToken, authController.getUserByUserId);
 router.post('/migrate-subscriptions', authController.verifyToken, authController.migrateUserSubscriptions);
 
-// ========== FITNESS PLAN ROUTES (NEW) ==========
+// ========== FITNESS PLAN ROUTES ==========
 router.post('/fitness-plan/add', authController.verifyToken, authController.addFitnessPlan);
 router.put('/fitness-plan/update', authController.verifyToken, authController.updateFitnessPlan);
 

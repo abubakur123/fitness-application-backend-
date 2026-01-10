@@ -2,7 +2,58 @@ const authService = require('../services/auth_services');
 const jwt = require('jsonwebtoken');
 
 class AuthController {
-  // Get user by ID (from URL parameter)
+  // ========== NEW: GOOGLE OAUTH ENDPOINT ==========
+  
+  // Google login/signup
+  async googleAuth(req, res) {
+    try {
+      const { google_id, email, display_name, firebase_uid, email_verified, profileKey, fitnessPlanId } = req.body;
+
+      // Support both snake_case (from Google) and camelCase
+      const googleId = google_id || req.body.googleId;
+      const name = display_name || req.body.name;
+
+      if (!googleId || !email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Google ID and email are required'
+        });
+      }
+
+      const result = await authService.googleAuth({
+        google_id: googleId,
+        email,
+        display_name: name,
+        firebase_uid,
+        email_verified,
+        profileKey,
+        fitnessPlanId
+      });
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: result.isNewUser ? 'Account created successfully' : 'Login successful',
+        isNewUser: result.isNewUser,
+        linkedExisting: result.linkedExisting || false,
+        user: result.user,
+        token: result.token
+      });
+
+    } catch (error) {
+      console.error('Google auth error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Internal server error'
+      });
+    }
+  }
+
+  // ========== EXISTING METHODS (UNCHANGED) ==========
+
   async getUserByUserId(req, res) {
     try {
       const { userId } = req.params;
@@ -41,6 +92,8 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
+          authProvider: user.authProvider || 'email',
+          googleProfile: user.googleProfile || null,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -55,7 +108,6 @@ class AuthController {
     }
   }
 
-  // Initiate signup - RETURN CODE IN RESPONSE
   async initiateSignup(req, res) {
     try {
       const { email, profileKey, fitnessPlanId } = req.body;
@@ -73,7 +125,6 @@ class AuthController {
         return res.status(400).json(result);
       }
 
-      // Return the code in response for development
       res.status(200).json({
         success: result.success,
         message: result.message,
@@ -89,7 +140,6 @@ class AuthController {
     }
   }
 
-  // Initiate login - RETURN CODE IN RESPONSE
   async initiateLogin(req, res) {
     try {
       const { email } = req.body;
@@ -107,7 +157,6 @@ class AuthController {
         return res.status(400).json(result);
       }
 
-      // Return the code in response for development
       res.status(200).json({
         success: true,
         message: result.message,
@@ -124,7 +173,6 @@ class AuthController {
     }
   }
 
-  // Complete signup
   async completeSignup(req, res) {
     try {
       const { email, code } = req.body;
@@ -158,7 +206,6 @@ class AuthController {
     }
   }
 
-  // Complete login
   async completeLogin(req, res) {
     try {
       const { email, code } = req.body;
@@ -192,7 +239,6 @@ class AuthController {
     }
   }
 
-  // Link profile to user
   async linkProfile(req, res) {
     try {
       const { email, profileKey } = req.body;
@@ -221,7 +267,6 @@ class AuthController {
     }
   }
 
-  // Get user by email
   async getUserByEmail(req, res) {
     try {
       const { email } = req.params;
@@ -259,6 +304,8 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
+          authProvider: user.authProvider || 'email',
+          googleProfile: user.googleProfile || null,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -273,7 +320,6 @@ class AuthController {
     }
   }
 
-  // Search users
   async searchUsers(req, res) {
     try {
       const { search, page = 1, limit = 10 } = req.query;
@@ -301,7 +347,6 @@ class AuthController {
     }
   }
 
-  // Delete user
   async deleteUser(req, res) {
     try {
       const { email } = req.params;
@@ -330,7 +375,6 @@ class AuthController {
     }
   }
 
-  // Get user by ID (from token)
   async getUserById(req, res) {
     try {
       const userId = req.user.userId;
@@ -369,6 +413,8 @@ class AuthController {
             subscriptionStatus: user.subscriptionStatus,
             hasActiveSubscription: user.subscriptionStatus === 'active'
           },
+          authProvider: user.authProvider || 'email',
+          googleProfile: user.googleProfile || null,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -383,7 +429,6 @@ class AuthController {
     }
   }
   
-  // Get authenticated user by profile key
   async getAuthUserByProfileKey(req, res) {
     try {
       const { profileKey } = req.params;
@@ -415,7 +460,6 @@ class AuthController {
     }
   }
 
-  // Add fitness plan to user
   async addFitnessPlan(req, res) {
     try {
       const userId = req.user.userId;
@@ -449,7 +493,6 @@ class AuthController {
     }
   }
 
-  // Update fitness plan for user
   async updateFitnessPlan(req, res) {
     try {
       const userId = req.user.userId;
@@ -483,7 +526,6 @@ class AuthController {
     }
   }
 
-  // Check user subscription status
   async checkSubscriptionStatus(req, res) {
     try {
       const userId = req.user?.userId || req.params.userId;
@@ -522,7 +564,6 @@ class AuthController {
     }
   }
 
-  // Update user subscription status (admin)
   async updateUserSubscriptionStatus(req, res) {
     try {
       const { userId } = req.params;
@@ -561,7 +602,6 @@ class AuthController {
     }
   }
 
-  // Verify token middleware
   verifyToken(req, res, next) {
     try {
       const token = req.headers.authorization?.split(' ')[1];
@@ -584,10 +624,8 @@ class AuthController {
     }
   }
 
-  // Migrate user subscriptions (remove subscriptionHistory references)
   async migrateUserSubscriptions(req, res) {
     try {
-      // Add admin check (optional)
       const isAdmin = req.user?.isAdmin || req.headers['x-admin-key'] === process.env.ADMIN_KEY;
       if (!isAdmin) {
         return res.status(403).json({
@@ -598,7 +636,6 @@ class AuthController {
       
       const User = require('../models/auth.model');
       
-      // Find all users without subscriptionStatus
       const usersToUpdate = await User.find({
         $or: [
           { subscriptionStatus: { $exists: false } },
@@ -608,7 +645,6 @@ class AuthController {
       
       console.log(`Found ${usersToUpdate.length} users to update`);
       
-      // Update each user
       let updatedCount = 0;
       for (const user of usersToUpdate) {
         try {
@@ -621,7 +657,6 @@ class AuthController {
         }
       }
       
-      // Bulk update for any remaining users
       const bulkResult = await User.updateMany(
         {},
         { 
